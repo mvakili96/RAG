@@ -212,3 +212,94 @@ for rank, (doc, score) in enumerate(reranked_docs, start=1):
     print(doc.page_content[:500])
 """
 
+#########################################################################################################################################
+# 7- Build the retrieved context
+#########################################################################################################################################
+
+context_parts = []
+
+for doc, score in reranked_docs:
+
+    page = doc.metadata["page"]
+
+    context_parts.append(
+        f"""
+SOURCE PAGE: {page}
+
+{doc.page_content}
+"""
+    )
+
+context = "\n\n---\n\n".join(context_parts)
+
+# print(context)
+
+#########################################################################################################################################
+# 8- Construct the actual RAG prompt
+#########################################################################################################################################
+
+from langchain_core.prompts import PromptTemplate
+
+rag_prompt = PromptTemplate.from_template(
+"""
+You are answering questions about a document.
+
+Use ONLY the provided context to answer the question.
+
+If the answer cannot be determined from the context,
+say that the provided document context does not contain
+enough information.
+
+When possible, mention the source page.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+ANSWER:
+"""
+)
+
+formatted_prompt = rag_prompt.format(
+    context=context,
+    question=query
+)
+
+# print(formatted_prompt)
+
+#########################################################################################################################################
+# 9- Load a local LLM and generate the grounded response
+#########################################################################################################################################
+from langchain_huggingface import HuggingFacePipeline
+from transformers import GenerationConfig
+
+
+generation_config = GenerationConfig.from_pretrained(
+    "Qwen/Qwen2.5-1.5B-Instruct"
+)
+
+generation_config.max_new_tokens = 400
+generation_config.do_sample = False
+
+# These only matter when sampling is enabled
+generation_config.temperature = None
+generation_config.top_p = None
+generation_config.top_k = None
+
+llm = HuggingFacePipeline.from_model_id(
+    model_id="Qwen/Qwen2.5-1.5B-Instruct",
+    task="text-generation",
+
+    pipeline_kwargs={
+        "generation_config": generation_config,
+        "return_full_text": False,
+    },
+
+    device_map="auto",
+)
+
+response = llm.invoke(formatted_prompt)
+
+print(response)
