@@ -2,7 +2,7 @@
 query: "What is Hough transform in the context of computer vision?"
 
 documents:
-  pdf_glob: "*.pdf"
+  pdf_glob: "documents/*.pdf"
 
 chunking:
   chunk_size: 900
