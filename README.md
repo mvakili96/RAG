@@ -6,6 +6,15 @@ The pipeline extracts text with pypdf, recursively chunks it with LangChain, and
 
 Documents belong in `documents/`. Models, prompts, the query, chunking, and retrieval parameters are defined in `config.yml`. Install dependencies with `pip install -r requirements.txt`, then run `python main.py`.
 
+## Retrieval Sources
+
+- *Computer Vision: Algorithms and Applications* — computer vision methods and applications.
+- *Designing Data-Intensive Applications* — scalable and distributed data systems.
+- *Grokking the System Design Interview* — practical system-design case studies.
+- *LeetCode 4000 Problem Reference* — coding problems, algorithms, and data structures.
+- *Probabilistic Machine Learning* — advanced probabilistic modeling and inference.
+- *Speech and Language Processing* — NLP, speech, and language models.
+
 ## Current limitations
 
 - Figures, table structure, page layout, and scanned text are not parsed.
@@ -13,4 +22,3 @@ Documents belong in `documents/`. Models, prompts, the query, chunking, and retr
 - FAISS uses exact search rather than an approximate nearest-neighbor index.
 - `rank_bm25` scores every chunk rather than using a scalable inverted index.
 - No retrieval evaluation, serving API, or conversational memory yet.
-

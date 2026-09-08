@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0.0",
+  "benchmark_name": "rag-learning-source-grounded-benchmark",
+  "benchmark_version": "1.1.0",
+  "dataset_schema_version": "1.1.0",
+  "last_source_audit_on": "2026-09-08",
+  "source_audit_method": "codex_source_audit",
+  "source_audit_model": "OpenAI Codex (GPT-5)",
+  "created_on": "2026-09-08",
+  "corpus_root": "documents",
+  "hash_algorithm": "sha256",
+  "extractor": {
+    "library": "pypdf",
+    "version": "6.16.2",
+    "method": "page.extract_text()"
+  },
+  "page_numbering": {
+    "pdf_page": "One-based physical PDF page index, matching main.py's enumerate(reader.pages) + 1.",
+    "printed_page_label": "Reader-visible page label recorded separately where the book has a stable offset; it is not used as the retrieval citation."
+  },
+  "documents": [
+    {
+      "source": "Computer Vision: Algorithms and Applications.pdf",
+      "relative_path": "documents/Computer Vision: Algorithms and Applications.pdf",
+      "sha256": "515894714d4fae375b1d2a33cd86e2e365b1ced2de21a57af96d23f0658d2b65",
+      "size_bytes": 43190964,
+      "pdf_pages": 1232,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": -26,
+      "pdf_metadata_title": "Computer Vision: Algorithms and Applications, 2nd Edition"
+    },
+    {
+      "source": "Designing Data-Intensive Applications.pdf",
+      "relative_path": "documents/Designing Data-Intensive Applications.pdf",
+      "sha256": "39cc0d1842a56367eb79273f15b0a91fe783644155f987a32b9939daa4b2110d",
+      "size_bytes": 24443850,
+      "pdf_pages": 613,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": -22,
+      "pdf_metadata_title": "Designing Data-Intensive Applications"
+    },
+    {
+      "source": "Grokking-the-system-design-interview-free.pdf",
+      "relative_path": "documents/Grokking-the-system-design-interview-free.pdf",
+      "sha256": "6a832b25a2557ad08e1b979e05a1605835493592c1b65afb7af9cf754bbb49a3",
+      "size_bytes": 4424660,
+      "pdf_pages": 196,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": 0,
+      "pdf_metadata_title": null
+    },
+    {
+      "source": "LeetCode_4000_Problem_Reference.pdf",
+      "relative_path": "documents/LeetCode_4000_Problem_Reference.pdf",
+      "sha256": "f6f6fd93289a1d76d98a216ed7b6c8b13698e7a297013a4d668511600d55c79e",
+      "size_bytes": 3416999,
+      "pdf_pages": 1495,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": 0,
+      "pdf_metadata_title": "LeetCode 4000 Problem Reference"
+    },
+    {
+      "source": "Probabilistic Machine Learning.pdf",
+      "relative_path": "documents/Probabilistic Machine Learning.pdf",
+      "sha256": "54d6bfa8cc4a367bb553bea1c5127ca63696a9655b2ca1f6137a8584dccfdbaf",
+      "size_bytes": 151421194,
+      "pdf_pages": 1370,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": -34,
+      "pdf_metadata_title": null
+    },
+    {
+      "source": "Speech and Language Processing.pdf",
+      "relative_path": "documents/Speech and Language Processing.pdf",
+      "sha256": "88d0362c3bcb62a0cd09403fb80fd15e778dd53566943912ab1047cda3ff5c79",
+      "size_bytes": 26506144,
+      "pdf_pages": 646,
+      "page_numbering": "one_based_physical_pdf_page",
+      "printed_page_offset_for_benchmark_evidence": -8,
+      "pdf_metadata_title": null
+    }
+  ],
+  "notes": [
+    "Hashes pin this benchmark to the exact local PDF bytes inspected.",
+    "Some PDFs emit pypdf extraction warnings; benchmark evidence was selected only from clean prose passages and verified as exact extracted-page substrings.",
+    "All 50 included records passed the v1.1 Codex source audit and are evaluation-eligible; this is not human approval or a correctness guarantee."
+  ]
+}
