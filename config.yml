@@ -1,0 +1,85 @@
+# The question asked to the RAG pipeline.
+query: "What is Hough transform in the context of computer vision?"
+
+documents:
+  pdf_glob: "*.pdf"
+
+chunking:
+  chunk_size: 900
+  chunk_overlap: 200
+  add_start_index: true
+
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  normalize_embeddings: true
+
+retrieval:
+  dense_top_k: 10
+  bm25_top_k: 10
+  bm25_min_score: 0.0
+  bm25_k1: 1.5
+  bm25_b: 0.75
+  bm25_epsilon: 0.25
+  bm25_token_pattern: "[a-z0-9]+"
+
+query_expansion:
+  max_new_tokens: 120
+  max_key_terms: 6
+  max_acronyms: 4
+  min_variations: 2
+  max_variations: 4
+  max_term_length: 80
+  prompt: |
+    Extract conservative search terms for BM25 retrieval from the user query.
+
+    Return ONLY valid JSON with this exact structure:
+    {{
+      "key_terms": ["up to {max_key_terms} main technical terms"],
+      "acronyms": ["up to {max_acronyms} relevant acronyms"],
+      "variations": ["{min_variations} to {max_variations} close synonyms or common wording variations"]
+    }}
+
+    Do not answer the query. Do not add broader or merely related topics.
+
+    USER QUERY:
+    {query}
+
+reranking:
+  model_name: "cross-encoder/ms-marco-MiniLM-L6-v2"
+  final_top_k: 4
+
+llm:
+  model_id: "Qwen/Qwen2.5-7B-Instruct"
+  task: "text-generation"
+  device_map: "auto"
+  return_full_text: false
+  generation:
+    max_new_tokens: 400
+    do_sample: false
+    temperature: null
+    top_p: null
+    top_k: null
+
+rag:
+  context_separator: "\n\n---\n\n"
+  context_entry_template: |
+    SOURCE: {source}, PAGE: {page}
+
+    {page_content}
+  prompt: |
+    You are answering questions about a collection of documents.
+
+    Rules:
+        - Use ONLY the provided context to answer the question.
+
+        - If the answer cannot be determined from the context,
+        say that the provided document context does not contain
+        enough information. Otherwise, answer with explicitly naming the SOURCES and their PAGES from the CONTEXT.
+
+    CONTEXT:
+    {context}
+
+    QUESTION:
+    {question}
+
+    ANSWER:

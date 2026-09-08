@@ -6,14 +6,18 @@ import re
 from pathlib import Path
 
 import pypdf
+import yaml
 from langchain_core.documents import Document
 
-PDF_PATHS = sorted(Path(".").glob("*.pdf"))
+with Path("config.yml").open(encoding="utf-8") as file:
+    config = yaml.safe_load(file)
+
+PDF_PATHS = sorted(Path(".").glob(config["documents"]["pdf_glob"]))
 
 if not PDF_PATHS:
     raise FileNotFoundError("No PDF files were found in the current directory.")
 
-query = "What is Hough transform in the context of computer vision?"
+query = config["query"]
 
 
 def find_explicit_sources(question, available_sources):
@@ -82,9 +86,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # LangChain's recursive splitter tries paragraph boundaries first, then progressively smaller separators instead of blindly cutting every N characters.
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=900,
-    chunk_overlap=200,
-    add_start_index=True
+    chunk_size=config["chunking"]["chunk_size"],
+    chunk_overlap=config["chunking"]["chunk_overlap"],
+    add_start_index=config["chunking"]["add_start_index"]
 )
 
 # chunks is a list of chunks. Each chunk has metadata such as page_content, source, page, start_index, and so on.
@@ -106,9 +110,9 @@ for chunk in chunks:
 from langchain_huggingface import HuggingFaceEmbeddings
 
 embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_name=config["embedding"]["model_name"],
     encode_kwargs={
-        "normalize_embeddings": True
+        "normalize_embeddings": config["embedding"]["normalize_embeddings"]
     }
 )
 
@@ -129,7 +133,7 @@ from rank_bm25 import BM25Okapi
 
 
 def tokenize_for_bm25(text):
-    return re.findall(r"[a-z0-9]+", text.lower())
+    return re.findall(config["retrieval"]["bm25_token_pattern"], text.lower())
 
 # LangChain's vector-store abstraction exists to associate embeddings with their original documents and perform similarity search over them.
 # When a source was named, chunks contains only that source. Otherwise, it
@@ -143,7 +147,12 @@ vector_store = FAISS.from_documents(
 # It is built once during ingestion and reused for every query.
 # bm25_corpus is a list of all chunks, each chunk represented with a list of its words as strings
 bm25_corpus = [tokenize_for_bm25(chunk.page_content) for chunk in chunks]  
-bm25_index = BM25Okapi(bm25_corpus)
+bm25_index = BM25Okapi(
+    bm25_corpus,
+    k1=config["retrieval"]["bm25_k1"],
+    b=config["retrieval"]["bm25_b"],
+    epsilon=config["retrieval"]["bm25_epsilon"]
+)
 
 
 """
@@ -230,48 +239,42 @@ from transformers import GenerationConfig
 
 
 generation_config = GenerationConfig.from_pretrained(
-    "Qwen/Qwen2.5-7B-Instruct"
+    config["llm"]["model_id"]
 )
 
-generation_config.max_new_tokens = 400
-generation_config.do_sample = False
+generation_config.max_new_tokens = config["llm"]["generation"]["max_new_tokens"]
+generation_config.do_sample = config["llm"]["generation"]["do_sample"]
 
 # These only matter when sampling is enabled
-generation_config.temperature = None
-generation_config.top_p = None
-generation_config.top_k = None
+generation_config.temperature = config["llm"]["generation"]["temperature"]
+generation_config.top_p = config["llm"]["generation"]["top_p"]
+generation_config.top_k = config["llm"]["generation"]["top_k"]
 
 llm = HuggingFacePipeline.from_model_id(
-    model_id="Qwen/Qwen2.5-7B-Instruct",
-    task="text-generation",
+    model_id=config["llm"]["model_id"],
+    task=config["llm"]["task"],
 
     pipeline_kwargs={
         "generation_config": generation_config,
-        "return_full_text": False,
+        "return_full_text": config["llm"]["return_full_text"],
     },
 
-    device_map="auto",
+    device_map=config["llm"]["device_map"],
 )
 
-expansion_prompt = f"""
-Extract conservative search terms for BM25 retrieval from the user query.
-
-Return ONLY valid JSON with this exact structure:
-{{
-  "key_terms": ["up to 6 main technical terms"],
-  "acronyms": ["up to 4 relevant acronyms"],
-  "variations": ["2 to 4 close synonyms or common wording variations"]
-}}
-
-Do not answer the query. Do not add broader or merely related topics.
-
-USER QUERY:
-{query}
-"""
+expansion_prompt = config["query_expansion"]["prompt"].format(
+    query=query,
+    max_key_terms=config["query_expansion"]["max_key_terms"],
+    max_acronyms=config["query_expansion"]["max_acronyms"],
+    min_variations=config["query_expansion"]["min_variations"],
+    max_variations=config["query_expansion"]["max_variations"]
+)
 
 expansion_response = llm.invoke(
     expansion_prompt,
-    pipeline_kwargs={"max_new_tokens": 120}
+    pipeline_kwargs={
+        "max_new_tokens": config["query_expansion"]["max_new_tokens"]
+    }
 )
 json_start = expansion_response.find("{")
 
@@ -302,7 +305,11 @@ def keep_conservative_terms(values, maximum):
         term = value.strip()
         normalized_term = term.lower()
 
-        if term and len(term) <= 80 and normalized_term not in seen_terms:
+        if (
+            term
+            and len(term) <= config["query_expansion"]["max_term_length"]
+            and normalized_term not in seen_terms
+        ):
             kept_terms.append(term)
             seen_terms.add(normalized_term)
 
@@ -310,9 +317,18 @@ def keep_conservative_terms(values, maximum):
 
 
 query_expansion = {
-    "key_terms": keep_conservative_terms(parsed_expansion.get("key_terms"), 6),
-    "acronyms": keep_conservative_terms(parsed_expansion.get("acronyms"), 4),
-    "variations": keep_conservative_terms(parsed_expansion.get("variations"), 4)
+    "key_terms": keep_conservative_terms(
+        parsed_expansion.get("key_terms"),
+        config["query_expansion"]["max_key_terms"]
+    ),
+    "acronyms": keep_conservative_terms(
+        parsed_expansion.get("acronyms"),
+        config["query_expansion"]["max_acronyms"]
+    ),
+    "variations": keep_conservative_terms(
+        parsed_expansion.get("variations"),
+        config["query_expansion"]["max_variations"]
+    )
 }
 
 expanded_terms = (
@@ -336,18 +352,20 @@ query_vector = embedding_model.embed_query(query)
 # this searches all chunks from all sources.
 dense_results_with_scores = vector_store.similarity_search_with_score_by_vector(
     query_vector,
-    k=10
+    k=config["retrieval"]["dense_top_k"]
 )
 dense_results_with_scores.sort(key=lambda item: item[1])
 dense_candidate_docs = [doc for doc, _ in dense_results_with_scores]
 
 bm25_query_tokens = list(dict.fromkeys(tokenize_for_bm25(expanded_query)))
 bm25_scores = bm25_index.get_scores(bm25_query_tokens)
-top_bm25_indices = bm25_scores.argsort()[::-1][:10]
+top_bm25_indices = bm25_scores.argsort()[
+    ::-1
+][:config["retrieval"]["bm25_top_k"]]
 bm25_results_with_scores = [
     (chunks[index], float(bm25_scores[index]))
     for index in top_bm25_indices
-    if bm25_scores[index] > 0
+    if bm25_scores[index] > config["retrieval"]["bm25_min_score"]
 ]
 bm25_candidate_docs = [doc for doc, _ in bm25_results_with_scores]
 
@@ -431,7 +449,7 @@ Reranking takes those top candidates and uses a stronger/more expensive model to
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 reranker = HuggingFaceCrossEncoder(
-    model_name="cross-encoder/ms-marco-MiniLM-L6-v2"
+    model_name=config["reranking"]["model_name"]
 )
 
 pairs = [
@@ -450,7 +468,7 @@ scored_docs.sort(
     reverse=True
 )
 
-reranked_docs = scored_docs[:4]
+reranked_docs = scored_docs[:config["reranking"]["final_top_k"]]
 
 """
 print("\nRERANKED RESULTS")
@@ -485,14 +503,14 @@ for doc, score in reranked_docs:
     page = doc.metadata["page"]
 
     context_parts.append(
-        f"""
-SOURCE: {source}, PAGE: {page}
-
-{doc.page_content}
-"""
+        config["rag"]["context_entry_template"].format(
+            source=source,
+            page=page,
+            page_content=doc.page_content
+        )
     )
 
-context = "\n\n---\n\n".join(context_parts)
+context = config["rag"]["context_separator"].join(context_parts)
 
 # print(context)
 
@@ -502,26 +520,7 @@ context = "\n\n---\n\n".join(context_parts)
 
 from langchain_core.prompts import PromptTemplate
 
-rag_prompt = PromptTemplate.from_template(
-"""
-You are answering questions about a collection of documents.
-
-Rules:
-    - Use ONLY the provided context to answer the question.
-
-    - If the answer cannot be determined from the context,
-    say that the provided document context does not contain
-    enough information. Otherwise, answer with explicitly naming the SOURCES and their PAGES from the CONTEXT.
-
-CONTEXT:
-{context}
-
-QUESTION:
-{question}
-
-ANSWER:
-"""
-)
+rag_prompt = PromptTemplate.from_template(config["rag"]["prompt"])
 
 formatted_prompt = rag_prompt.format(
     context=context,
