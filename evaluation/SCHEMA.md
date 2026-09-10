@@ -47,9 +47,11 @@ Measure whether evidence-bearing chunks survive and move above labeled distracto
 
 The assembled context succeeds only when every required evidence group is satisfied. Multiple required groups are jointly necessary for the complete answer; alternatives within a group are interchangeable support.
 
-### Answer quality
+The evaluation script additionally reports deterministic `evidence_text_precision` and `evidence_text_recall`. It normalizes whitespace, Unicode ligatures, and line-break hyphenation. Annotated passages map to one consecutive word span in the extracted PDF source/page; final chunks use their verified splitter character offsets, excluding incomplete boundary-word fragments. Ambiguous or failed mappings are unscored. Position unions prevent chunk overlap and duplicate evidence from being counted twice. These metrics measure overlap with the specifically annotated passages, not semantic correctness, and may miss valid alternative evidence.
 
-Score coverage of `atomic_required_facts`, reject unsupported claims, and verify citations against exact source names and one-based physical `pdf_page` values. For `unanswerable_within_allowed_sources`, success is an explicit insufficiency statement; using a disallowed distractor is a grounding failure.
+### Generated answers
+
+The evaluation runner does not score answer correctness or faithfulness because this project focuses on retrieval and reranking rather than language-model evaluation. Generated answers remain in the detailed outputs, and answers for `unanswerable_within_allowed_sources` records are copied into the summary for manual inspection.
 
 ## Versioning and quarantine
 

@@ -83,3 +83,7 @@ rag:
     {question}
 
     ANSWER:
+
+evaluation:
+  dataset_path: "evaluation/rag_benchmark_v1.jsonl"
+  results_dir: "evaluation-results"
