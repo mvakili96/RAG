@@ -2,9 +2,20 @@
 
 A compact, local pipeline for progressively exploring production RAG concepts over PDF documents.
 
-The pipeline extracts text with pypdf, recursively chunks it with LangChain, and performs hybrid retrieval using MiniLM embeddings with a configurable FAISS IndexFlat or HNSW index plus BM25 with Qwen-based query expansion. 
+## Pipeline at a glance
 
-IndexFlat performs exact k-nearest-neighbor (k-NN) search by comparing the query with every stored vector. HNSW performs approximate nearest-neighbor (ANN) search by navigating a graph of related vectors, trading a small chance of missing the exact nearest chunks for faster search on large indexes. Both return the requested top-k results; they differ in how those results are found. The pipeline merges and deduplicates candidates, reranks them with a cross-encoder, then uses Qwen to generate an answer with source filenames and page numbers. An exactly named PDF restricts retrieval to that source; otherwise, all documents are searched.
+| Component | Implementation |
+|---|---|
+| **PDF ingestion** | `pypdf` |
+| **Chunking** | LangChain recursive text splitting |
+| **Dense retrieval** | MiniLM embeddings + `FAISS` IndexFlat (exact k-NN) or HNSW (ANN) |
+| **Sparse retrieval** | `BM25` with Qwen-based query expansion |
+| **Candidate fusion** | Chunk-ID deduplication |
+| **Reranking** | MiniLM cross-encoder |
+| **Generation** | `Qwen2.5-7B-Instruct` with source and page citations |
+| **Evaluation** | 50-question source-grounded benchmark with deterministic evidence-overlap metrics |
+
+IndexFlat compares the query with every stored vector, while HNSW navigates a graph and trades a small chance of missing the exact nearest chunks for faster search on large indexes. Both return the requested top-k results. An exactly named PDF restricts retrieval to that source; otherwise, the entire corpus is searched.
 
 Retrieval sources belong in `documents/` which is git-ignored. Models, prompts, the query, chunking, and retrieval parameters are defined in `config.yml`. Install dependencies with `pip install -r requirements.txt`, then run `python main.py`.
 
