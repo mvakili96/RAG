@@ -2,13 +2,13 @@
 
 Evidence text precision and recall are deterministic normalized word-position overlap against annotated passages. This project evaluates RAG retrieval and reranking rather than the quality of the final language model, so generated answers are not assigned correctness or faithfulness scores. Dataset eligibility is based on automatic source verification, not human review.
 
-- Run timestamp: 2026-09-11T01:57:04.082532+00:00
+- Run timestamp: 2026-09-11T11:53:23.751080+00:00
 - Coverage: full verified dataset
 - Evaluated questions: 50
 - Eligible dataset questions: 50
 - Excluded questions: 0 (0 quarantined, 0 unresolved)
 - Answer model: `Qwen/Qwen2.5-7B-Instruct`
-- Dataset: `evaluation/rag_benchmark_v1.jsonl`
+- Dataset: `evaluation-data/rag_benchmark_v1.jsonl`
 - Config: `config.yml`
 
 | Metric | Average | Scored denominator | N/A | Failed/unscored |

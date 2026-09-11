@@ -43,6 +43,7 @@ class RAGPipeline:
         self.config = config
         self.pdf_paths = pdf_paths
         self.available_sources = [pdf_path.name for pdf_path in pdf_paths]
+        self.page_texts = {}
 
         self.documents = self.load_documents()
         self.chunks = self.chunk_documents(self.documents)
@@ -74,6 +75,7 @@ class RAGPipeline:
 
                 # the following text totally ignores figures. Object type is a string.
                 text = page.extract_text() or ""
+                self.page_texts[(pdf_path.name, page_number + 1)] = text
 
                 doc = Document(
                     page_content=text,
@@ -181,6 +183,8 @@ class RAGPipeline:
         # contains all chunks from all sources in one global FAISS index.
         # Each source has its own FAISS index. Searching every source index and
         # merging the results lets the same pipeline restrict retrieval per query.
+        # Each chunk is embedded once in its source index. The config selects exact
+        # IndexFlatL2 search or approximate IndexHNSWFlat search.
         dense_index_type = self.config["retrieval"]["dense_index_type"]
         embedding_dimension = None
 
@@ -541,6 +545,9 @@ class RAGPipeline:
 
         Reranking takes those top candidates and uses a stronger/more expensive model to score them more carefully against the actual query.
         """
+
+        if not candidate_docs:
+            return []
 
         if self.reranker is None:
             self.reranker = HuggingFaceCrossEncoder(
