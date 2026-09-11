@@ -19,7 +19,7 @@ Retrieval sources belong in `documents/` which is git-ignored. Models, prompts, 
 
 ## Evaluation Dataset
 
-`evaluation/rag_benchmark_v1.jsonl` is a fixed, source-grounded benchmark of 50 answerable and controlled-unanswerable questions. It includes reference answers, atomic facts, exact PDF evidence with physical page numbers, source restrictions, terminology variants, and distractors. It exists to compare retrieval, query-expansion, reranking, and context-coverage changes consistently across experiments.
+`evaluation-data/rag_benchmark_v1.jsonl` is a fixed, source-grounded benchmark of 50 answerable and controlled-unanswerable questions. It includes reference answers, atomic facts, exact PDF evidence with physical page numbers, source restrictions, terminology variants, and distractors. It exists to compare retrieval, query-expansion, reranking, and context-coverage changes consistently across experiments.
 
 Run the complete automated evaluation with `python evaluate.py`, or use `python evaluate.py --limit 1` for a small execution check. Evidence text precision and recall deterministically measure normalized word-position overlap with the annotated passages; they do not measure semantic correctness and can miss valid alternative evidence. This repository evaluates RAG retrieval and reranking rather than the final language model response. Generated answers are retained, and answers to the three unanswerable questions are shown in the summary for manual inspection. Each run replaces `summary.md`, `per_question.csv`, and `details.json` in `evaluation-results/`.
 

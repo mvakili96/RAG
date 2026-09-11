@@ -89,5 +89,5 @@ rag:
     ANSWER:
 
 evaluation:
-  dataset_path: "evaluation/rag_benchmark_v1.jsonl"
+  dataset_path: "evaluation-data/rag_benchmark_v1.jsonl"
   results_dir: "evaluation-results"
