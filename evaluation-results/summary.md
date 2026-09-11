@@ -2,7 +2,7 @@
 
 Evidence text precision and recall are deterministic normalized word-position overlap against annotated passages. This project evaluates RAG retrieval and reranking rather than the quality of the final language model, so generated answers are not assigned correctness or faithfulness scores. Dataset eligibility is based on automatic source verification, not human review.
 
-- Run timestamp: 2026-09-10T01:53:01.684802+00:00
+- Run timestamp: 2026-09-11T01:57:04.082532+00:00
 - Coverage: full verified dataset
 - Evaluated questions: 50
 - Eligible dataset questions: 50
@@ -22,6 +22,7 @@ Evidence text overlap measures coverage of the specifically annotated passages, 
 ## Pipeline configuration
 
 - Chunk size/overlap: 900 / 200 characters
+- Dense FAISS index: `hnsw`
 - Dense top-k / BM25 top-k: 10 / 10
 - Final reranked top-k: 4
 - Embedding model: `sentence-transformers/all-MiniLM-L6-v2`

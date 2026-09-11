@@ -9,9 +9,11 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
+import faiss
 import pypdf
 import yaml
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
@@ -317,13 +319,41 @@ class EvaluationPipeline:
             encode_kwargs={"normalize_embeddings": config["embedding"]["normalize_embeddings"]},
         )
 
-        # Each chunk is embedded once. Searching every source index and merging its top
-        # results is equivalent to searching one global flat index for the final top-k.
-        for source, chunks in self.source_chunks.items():
-            self.source_vector_stores[source] = FAISS.from_documents(
-                documents=chunks,
-                embedding=self.embedding_model,
+        dense_index_type = config["retrieval"]["dense_index_type"]
+        if dense_index_type not in {"flat", "hnsw"}:
+            raise ValueError('retrieval.dense_index_type must be either "flat" or "hnsw".')
+
+        embedding_dimension = None
+        if dense_index_type == "hnsw":
+            embedding_dimension = len(
+                self.embedding_model.embed_query("FAISS dimension probe")
             )
+
+        # Each chunk is embedded once in its source index. The config selects exact
+        # IndexFlatL2 search or approximate IndexHNSWFlat search.
+        for source, chunks in self.source_chunks.items():
+            if dense_index_type == "flat":
+                self.source_vector_stores[source] = FAISS.from_documents(
+                    documents=chunks,
+                    embedding=self.embedding_model,
+                )
+            else:
+                faiss_index = faiss.IndexHNSWFlat(
+                    embedding_dimension,
+                    config["retrieval"]["hnsw_m"],
+                )
+                faiss_index.hnsw.efConstruction = config["retrieval"][
+                    "hnsw_ef_construction"
+                ]
+                faiss_index.hnsw.efSearch = config["retrieval"]["hnsw_ef_search"]
+                vector_store = FAISS(
+                    embedding_function=self.embedding_model,
+                    index=faiss_index,
+                    docstore=InMemoryDocstore(),
+                    index_to_docstore_id={},
+                )
+                vector_store.add_documents(chunks)
+                self.source_vector_stores[source] = vector_store
 
         self.global_bm25 = self.build_bm25(self.all_chunks)
         for source, chunks in self.source_chunks.items():
@@ -804,6 +834,7 @@ def build_summary(run, dataset_counts, metric_summaries, question_results):
         "## Pipeline configuration",
         "",
         f"- Chunk size/overlap: {run['chunk_size']} / {run['chunk_overlap']} characters",
+        f"- Dense FAISS index: `{run['dense_index_type']}`",
         f"- Dense top-k / BM25 top-k: {run['dense_top_k']} / {run['bm25_top_k']}",
         f"- Final reranked top-k: {run['final_top_k']}",
         f"- Embedding model: `{run['embedding_model']}`",
@@ -958,6 +989,7 @@ def main():
         "reranker_model": config["reranking"]["model_name"],
         "chunk_size": config["chunking"]["chunk_size"],
         "chunk_overlap": config["chunking"]["chunk_overlap"],
+        "dense_index_type": config["retrieval"]["dense_index_type"],
         "dense_top_k": config["retrieval"]["dense_top_k"],
         "bm25_top_k": config["retrieval"]["bm25_top_k"],
         "final_top_k": config["reranking"]["final_top_k"],

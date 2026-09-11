@@ -2,9 +2,11 @@
 
 A compact, local pipeline for progressively exploring production RAG concepts over PDF documents.
 
-The pipeline extracts text with pypdf, recursively chunks it with LangChain, and performs hybrid retrieval using MiniLM embeddings with FAISS plus BM25 with Qwen-based query expansion. It merges and deduplicates candidates, reranks them with a cross-encoder, then uses Qwen to generate an answer with source filenames and page numbers. An exactly named PDF restricts retrieval to that source; otherwise, all documents are searched.
+The pipeline extracts text with pypdf, recursively chunks it with LangChain, and performs hybrid retrieval using MiniLM embeddings with a configurable FAISS IndexFlat or HNSW index plus BM25 with Qwen-based query expansion. 
 
-Documents belong in `documents/`. Models, prompts, the query, chunking, and retrieval parameters are defined in `config.yml`. Install dependencies with `pip install -r requirements.txt`, then run `python main.py`.
+IndexFlat performs exact k-nearest-neighbor (k-NN) search by comparing the query with every stored vector. HNSW performs approximate nearest-neighbor (ANN) search by navigating a graph of related vectors, trading a small chance of missing the exact nearest chunks for faster search on large indexes. Both return the requested top-k results; they differ in how those results are found. The pipeline merges and deduplicates candidates, reranks them with a cross-encoder, then uses Qwen to generate an answer with source filenames and page numbers. An exactly named PDF restricts retrieval to that source; otherwise, all documents are searched.
+
+Retrieval sources belong in `documents/` which is git-ignored. Models, prompts, the query, chunking, and retrieval parameters are defined in `config.yml`. Install dependencies with `pip install -r requirements.txt`, then run `python main.py`.
 
 ## Retrieval Sources
 
@@ -25,6 +27,5 @@ Run the complete automated evaluation with `python evaluate.py`, or use `python 
 
 - Figures, table structure, page layout, and scanned text are not parsed.
 - Indexes are rebuilt on every run and are not persisted.
-- FAISS uses exact search rather than an approximate nearest-neighbor index.
 - `rank_bm25` scores every chunk rather than using a scalable inverted index.
 - No serving API or conversational memory yet.

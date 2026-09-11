@@ -128,6 +128,8 @@ print(vector[:10])
 #########################################################################################################################################
 # 4- Build the dense and sparse retrieval indexes
 #########################################################################################################################################
+import faiss
+from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from rank_bm25 import BM25Okapi
 
@@ -138,10 +140,32 @@ def tokenize_for_bm25(text):
 # LangChain's vector-store abstraction exists to associate embeddings with their original documents and perform similarity search over them.
 # When a source was named, chunks contains only that source. Otherwise, it
 # contains all chunks from all sources in one global FAISS index.
-vector_store = FAISS.from_documents(
-    documents=chunks,
-    embedding=embedding_model
-)
+dense_index_type = config["retrieval"]["dense_index_type"]
+
+if dense_index_type == "flat":
+    vector_store = FAISS.from_documents(
+        documents=chunks,
+        embedding=embedding_model
+    )
+elif dense_index_type == "hnsw":
+    embedding_dimension = len(embedding_model.embed_query("FAISS dimension probe"))
+    faiss_index = faiss.IndexHNSWFlat(
+        embedding_dimension,
+        config["retrieval"]["hnsw_m"]
+    )
+    faiss_index.hnsw.efConstruction = config["retrieval"]["hnsw_ef_construction"]
+    faiss_index.hnsw.efSearch = config["retrieval"]["hnsw_ef_search"]
+    vector_store = FAISS(
+        embedding_function=embedding_model,
+        index=faiss_index,
+        docstore=InMemoryDocstore(),
+        index_to_docstore_id={}
+    )
+    vector_store.add_documents(chunks)
+else:
+    raise ValueError('retrieval.dense_index_type must be either "flat" or "hnsw".')
+
+print("Dense FAISS index:", dense_index_type)
 
 # Unlike a vector store, BM25 indexes tokenized words(so here, by token, we mean a word) rather than embeddings.
 # It is built once during ingestion and reused for every query.

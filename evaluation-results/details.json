@@ -1,6 +1,6 @@
 {
   "run": {
-    "timestamp_utc": "2026-09-10T01:53:01.684802+00:00",
+    "timestamp_utc": "2026-09-11T01:57:04.082532+00:00",
     "full_dataset": true,
     "requested_limit": null,
     "evaluated_questions": 50,
@@ -11,6 +11,7 @@
     "reranker_model": "cross-encoder/ms-marco-MiniLM-L6-v2",
     "chunk_size": 900,
     "chunk_overlap": 200,
+    "dense_index_type": "hnsw",
     "dense_top_k": 10,
     "bm25_top_k": 10,
     "final_top_k": 4,
@@ -1769,7 +1770,7 @@
         {
           "chunk_id": "Computer Vision: Algorithms and Applications.pdf::page=461::start=687",
           "rank": 1,
-          "reranker_score": 0.7329657673835754,
+          "reranker_score": 0.7329667806625366,
           "source": "Computer Vision: Algorithms and Applications.pdf",
           "page": 461,
           "start_index": 687,
@@ -1778,7 +1779,7 @@
         {
           "chunk_id": "Computer Vision: Algorithms and Applications.pdf::page=461::start=0",
           "rank": 2,
-          "reranker_score": -1.4704093933105469,
+          "reranker_score": -1.470412015914917,
           "source": "Computer Vision: Algorithms and Applications.pdf",
           "page": 461,
           "start_index": 0,
@@ -1787,7 +1788,7 @@
         {
           "chunk_id": "Computer Vision: Algorithms and Applications.pdf::page=458::start=649",
           "rank": 3,
-          "reranker_score": -5.973415374755859,
+          "reranker_score": -5.973418235778809,
           "source": "Computer Vision: Algorithms and Applications.pdf",
           "page": 458,
           "start_index": 649,
