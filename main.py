@@ -2,6 +2,7 @@
 # 1- Load the document
 #########################################################################################################################################
 import json
+import pickle
 import re
 from pathlib import Path
 
@@ -39,15 +40,48 @@ def find_explicit_sources(question, available_sources):
 
 
 class RAGPipeline:
+    PERSISTENCE_FORMAT_VERSION = 1
+
     def __init__(self, config, pdf_paths):
         self.config = config
         self.pdf_paths = pdf_paths
-        self.available_sources = [pdf_path.name for pdf_path in pdf_paths]
+        self.indexing_mode = self.config["indexing"]["mode"]
+        self.persist_directory = Path(
+            self.config["indexing"]["persist_directory"]
+        )
+
+        if self.indexing_mode not in ("build", "load"):
+            raise ValueError('indexing.mode must be either "build" or "load".')
+
         self.page_texts = {}
 
-        self.documents = self.load_documents()
-        self.chunks = self.chunk_documents(self.documents)
-        self.source_chunks = {
+        if self.indexing_mode == "build":
+            self.available_sources = [pdf_path.name for pdf_path in pdf_paths]
+            self.documents = self.load_documents()
+            self.chunks = self.chunk_documents(self.documents)
+            self.source_chunks = self.group_chunks_by_source()
+            self.source_directory_names = {
+                source: f"source_{index:03d}"
+                for index, source in enumerate(self.available_sources)
+            }
+            self.embedding_model = self.create_embedding_model()
+            self.source_vector_stores = self.build_dense_indexes()
+            self.global_bm25 = self.build_bm25(self.chunks)
+            self.subset_bm25_cache = {
+                (source,): (chunks, self.build_bm25(chunks))
+                for source, chunks in self.source_chunks.items()
+            }
+            self.save_index_data()
+        else:
+            self.load_index_data()
+            self.embedding_model = self.create_embedding_model()
+            self.source_vector_stores = self.load_dense_indexes()
+
+        self.llm = self.load_llm()
+        self.reranker = None
+
+    def group_chunks_by_source(self):
+        return {
             source: [
                 chunk
                 for chunk in self.chunks
@@ -55,15 +89,125 @@ class RAGPipeline:
             ]
             for source in self.available_sources
         }
-        self.embedding_model = self.create_embedding_model()
-        self.source_vector_stores = self.build_dense_indexes()
-        self.global_bm25 = self.build_bm25(self.chunks)
-        self.subset_bm25_cache = {
-            (source,): (chunks, self.build_bm25(chunks))
-            for source, chunks in self.source_chunks.items()
+
+    def persisted_index_settings(self):
+        # These settings affect the saved chunks, embeddings, BM25 index, or HNSW graph.
+        # Query-time settings such as top-k and hnsw_ef_search may change without rebuilding.
+        return {
+            "chunking": self.config["chunking"],
+            "embedding": self.config["embedding"],
+            "bm25": {
+                key: self.config["retrieval"][key]
+                for key in (
+                    "bm25_k1",
+                    "bm25_b",
+                    "bm25_epsilon",
+                    "bm25_token_pattern",
+                )
+            },
+            "hnsw_construction": {
+                "hnsw_m": self.config["retrieval"]["hnsw_m"],
+                "hnsw_ef_construction": self.config["retrieval"]["hnsw_ef_construction"],
+            },
         }
-        self.llm = self.load_llm()
-        self.reranker = None
+
+    def dense_index_path(self, dense_index_type, source):
+        return (
+            self.persist_directory
+            / "faiss"
+            / dense_index_type
+            / self.source_directory_names[source]
+        )
+
+    def save_index_data(self):
+        self.persist_directory.mkdir(parents=True, exist_ok=True)
+
+        # BM25 and LangChain Documents are Python objects, so this local artifact is
+        # intended to be loaded only from a trusted index directory created here.
+        persisted_data = {
+            "documents": self.documents,
+            "chunks": self.chunks,
+            "page_texts": self.page_texts,
+            "global_bm25": self.global_bm25,
+            "subset_bm25_cache": self.subset_bm25_cache,
+        }
+        with (self.persist_directory / "corpus.pkl").open("wb") as file:
+            pickle.dump(persisted_data, file)
+
+        manifest = {
+            "format_version": self.PERSISTENCE_FORMAT_VERSION,
+            "available_sources": self.available_sources,
+            "source_directory_names": self.source_directory_names,
+            "index_settings": self.persisted_index_settings(),
+            "dense_indexes": ["flat", "hnsw"],
+        }
+        (self.persist_directory / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print("Saved persisted corpus and indexes to:", self.persist_directory)
+
+    def load_index_data(self):
+        manifest_path = self.persist_directory / "manifest.json"
+        corpus_path = self.persist_directory / "corpus.pkl"
+
+        if not manifest_path.is_file() or not corpus_path.is_file():
+            raise FileNotFoundError(
+                f"No complete persisted index was found in {self.persist_directory}. "
+                'Set indexing.mode to "build" and run the pipeline first.'
+            )
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("format_version") != self.PERSISTENCE_FORMAT_VERSION:
+            raise ValueError(
+                "The persisted index format is incompatible with this code. "
+                'Set indexing.mode to "build" to rebuild it.'
+            )
+
+        if manifest.get("index_settings") != self.persisted_index_settings():
+            raise ValueError(
+                "Chunking, embedding, BM25, or HNSW construction settings changed "
+                "after the indexes were built. Set indexing.mode to \"build\" to rebuild them."
+            )
+
+        if set(manifest.get("dense_indexes", [])) != {"flat", "hnsw"}:
+            raise ValueError(
+                "The persisted data does not contain both Flat and HNSW indexes. "
+                'Set indexing.mode to "build" to rebuild it.'
+            )
+
+        self.available_sources = manifest["available_sources"]
+        self.source_directory_names = manifest["source_directory_names"]
+
+        try:
+            # Pickle must only be loaded from this locally generated, trusted directory.
+            with corpus_path.open("rb") as file:
+                persisted_data = pickle.load(file)
+        except Exception as error:
+            raise RuntimeError(
+                "The persisted corpus data could not be loaded. "
+                'Set indexing.mode to "build" to rebuild it.'
+            ) from error
+
+        self.documents = persisted_data["documents"]
+        self.chunks = persisted_data["chunks"]
+        self.page_texts = persisted_data["page_texts"]
+        self.global_bm25 = persisted_data["global_bm25"]
+        self.subset_bm25_cache = persisted_data["subset_bm25_cache"]
+        self.source_chunks = self.group_chunks_by_source()
+
+        for dense_index_type in ("flat", "hnsw"):
+            for source in self.available_sources:
+                index_path = self.dense_index_path(dense_index_type, source)
+                if not (index_path / "index.faiss").is_file() or not (
+                    index_path / "index.pkl"
+                ).is_file():
+                    raise FileNotFoundError(
+                        f"The persisted {dense_index_type} index for {source} is missing. "
+                        'Set indexing.mode to "build" to rebuild all indexes.'
+                    )
+
+        print("Loaded persisted corpus data from:", self.persist_directory)
 
     def load_documents(self):
         documents = []
@@ -150,17 +294,26 @@ class RAGPipeline:
             text.lower()
         )
 
-    def build_faiss_vector_store(self, chunks, embedding_dimension=None):
-        dense_index_type = self.config["retrieval"]["dense_index_type"]
+    def build_faiss_vector_store(self, chunks, embeddings, dense_index_type):
+        text_embeddings = list(
+            zip(
+                [chunk.page_content for chunk in chunks],
+                embeddings,
+            )
+        )
+        metadatas = [chunk.metadata for chunk in chunks]
+        chunk_ids = [chunk.metadata["chunk_id"] for chunk in chunks]
 
         if dense_index_type == "flat":
-            return FAISS.from_documents(
-                documents=chunks,
-                embedding=self.embedding_model
+            return FAISS.from_embeddings(
+                text_embeddings=text_embeddings,
+                embedding=self.embedding_model,
+                metadatas=metadatas,
+                ids=chunk_ids,
             )
         if dense_index_type == "hnsw":
             faiss_index = faiss.IndexHNSWFlat(
-                embedding_dimension,
+                len(embeddings[0]),
                 self.config["retrieval"]["hnsw_m"]
             )
             faiss_index.hnsw.efConstruction = self.config["retrieval"]["hnsw_ef_construction"]
@@ -171,7 +324,11 @@ class RAGPipeline:
                 docstore=InMemoryDocstore(),
                 index_to_docstore_id={}
             )
-            vector_store.add_documents(chunks)
+            vector_store.add_embeddings(
+                text_embeddings=text_embeddings,
+                metadatas=metadatas,
+                ids=chunk_ids,
+            )
             return vector_store
 
         raise ValueError('retrieval.dense_index_type must be either "flat" or "hnsw".')
@@ -183,24 +340,63 @@ class RAGPipeline:
         # contains all chunks from all sources in one global FAISS index.
         # Each source has its own FAISS index. Searching every source index and
         # merging the results lets the same pipeline restrict retrieval per query.
-        # Each chunk is embedded once in its source index. The config selects exact
-        # IndexFlatL2 search or approximate IndexHNSWFlat search.
+        # Each chunk is embedded once, and those same embeddings are used to build
+        # both exact IndexFlatL2 and approximate IndexHNSWFlat indexes. The config
+        # selects which persisted index is used for retrieval.
         dense_index_type = self.config["retrieval"]["dense_index_type"]
-        embedding_dimension = None
-
-        if dense_index_type == "hnsw":
-            embedding_dimension = len(
-                self.embedding_model.embed_query("FAISS dimension probe")
-            )
+        if dense_index_type not in ("flat", "hnsw"):
+            raise ValueError('retrieval.dense_index_type must be either "flat" or "hnsw".')
 
         source_vector_stores = {}
         for source, chunks in self.source_chunks.items():
-            source_vector_stores[source] = self.build_faiss_vector_store(
-                chunks,
-                embedding_dimension
+            if not chunks:
+                raise ValueError(f"No extractable text chunks were found for {source}.")
+
+            embeddings = self.embedding_model.embed_documents(
+                [chunk.page_content for chunk in chunks]
             )
 
-        print("Dense FAISS index:", dense_index_type)
+            for index_type in ("flat", "hnsw"):
+                vector_store = self.build_faiss_vector_store(
+                    chunks,
+                    embeddings,
+                    index_type,
+                )
+                vector_store.save_local(
+                    str(self.dense_index_path(index_type, source))
+                )
+
+                if index_type == dense_index_type:
+                    source_vector_stores[source] = vector_store
+
+        print("Built and persisted FAISS indexes: flat, hnsw")
+        print("Dense FAISS index selected for retrieval:", dense_index_type)
+        return source_vector_stores
+
+    def load_dense_indexes(self):
+        dense_index_type = self.config["retrieval"]["dense_index_type"]
+        if dense_index_type not in ("flat", "hnsw"):
+            raise ValueError('retrieval.dense_index_type must be either "flat" or "hnsw".')
+
+        source_vector_stores = {}
+        for source in self.available_sources:
+            # FAISS stores the document metadata in a pickle beside the native index.
+            # Loading is safe here only because these files were created locally by
+            # this pipeline in the configured trusted directory.
+            vector_store = FAISS.load_local(
+                str(self.dense_index_path(dense_index_type, source)),
+                self.embedding_model,
+                allow_dangerous_deserialization=True,
+            )
+
+            if dense_index_type == "hnsw":
+                vector_store.index.hnsw.efSearch = self.config["retrieval"][
+                    "hnsw_ef_search"
+                ]
+
+            source_vector_stores[source] = vector_store
+
+        print("Dense FAISS index loaded for retrieval:", dense_index_type)
         return source_vector_stores
 
     def build_bm25(self, chunks):
@@ -678,29 +874,24 @@ def main():
     with Path("config.yml").open(encoding="utf-8") as file:
         config = yaml.safe_load(file)
 
-    pdf_paths = sorted(Path(".").glob(config["documents"]["pdf_glob"]))
+    if config["indexing"]["mode"] == "build":
+        pdf_paths = sorted(Path(".").glob(config["documents"]["pdf_glob"]))
 
-    if not pdf_paths:
-        raise FileNotFoundError("No PDF files were found in the current directory.")
+        if not pdf_paths:
+            raise FileNotFoundError("No PDF files were found in the current directory.")
+    else:
+        # Load mode reads the corpus, chunks, metadata, and indexes from disk.
+        pdf_paths = []
 
     query = config["query"]
-    selected_sources = find_explicit_sources(
-        query,
-        [pdf_path.name for pdf_path in pdf_paths]
-    )
+    pipeline = RAGPipeline(config, pdf_paths)
+    selected_sources = find_explicit_sources(query, pipeline.available_sources)
 
     if selected_sources:
         print("Source explicitly selected:", ", ".join(selected_sources))
-        pdf_paths_to_load = [
-            pdf_path
-            for pdf_path in pdf_paths
-            if pdf_path.name in selected_sources
-        ]
     else:
         print("No source explicitly selected; searching all sources.")
-        pdf_paths_to_load = pdf_paths
 
-    pipeline = RAGPipeline(config, pdf_paths_to_load)
     result = pipeline.run(query)
     print(result["generated_answer"])
 

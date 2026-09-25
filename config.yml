@@ -4,6 +4,10 @@ query: "What is Hough transform in the context of computer vision?"
 documents:
   pdf_glob: "documents/*.pdf"
 
+indexing:
+  mode: "load"  # First use "build"; then switch to "load" to reuse the persisted indexes.
+  persist_directory: "index-data"
+
 chunking:
   chunk_size: 900
   chunk_overlap: 200
@@ -15,9 +19,9 @@ embedding:
 
 retrieval:
   dense_index_type: "hnsw"  # "flat" (exact IndexFlatL2) or "hnsw" (approximate IndexHNSWFlat)
-  hnsw_m: 32
-  hnsw_ef_construction: 200
-  hnsw_ef_search: 64
+  hnsw_m: 8
+  hnsw_ef_construction: 50
+  hnsw_ef_search: 16
   dense_top_k: 10
   bm25_top_k: 10
   bm25_min_score: 0.0

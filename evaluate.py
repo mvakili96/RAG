@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from main import RAGPipeline, find_explicit_sources
+from main import RAGPipeline
 
 
 CONFIG_PATH = Path("config.yml")
@@ -530,6 +530,8 @@ def build_summary(run, dataset_counts, metric_summaries, question_results):
         "",
         "## Pipeline configuration",
         "",
+        f"- Indexing mode: `{run['indexing_mode']}`",
+        f"- Persisted index directory: `{run['persist_directory']}`",
         f"- Chunk size/overlap: {run['chunk_size']} / {run['chunk_overlap']} characters",
         f"- Dense FAISS index: `{run['dense_index_type']}`",
         f"- Dense top-k / BM25 top-k: {run['dense_top_k']} / {run['bm25_top_k']}",
@@ -606,19 +608,14 @@ def main():
     if not selected_records:
         raise ValueError("No eligible evaluation examples were selected.")
 
-    all_pdf_paths = sorted(Path(".").glob(config["documents"]["pdf_glob"]))
-    if not all_pdf_paths:
-        raise FileNotFoundError("No PDF files were found.")
-    all_source_names = [path.name for path in all_pdf_paths]
-
-    required_source_names = set()
-    for record in selected_records:
-        explicit = find_explicit_sources(record["question"], all_source_names)
-        if explicit:
-            required_source_names.update(explicit)
-        else:
-            required_source_names.update(all_source_names)
-    pdf_paths = [path for path in all_pdf_paths if path.name in required_source_names]
+    if config["indexing"]["mode"] == "build":
+        # A build always indexes the complete corpus so the persisted data can be
+        # reused by later queries and evaluation subsets.
+        pdf_paths = sorted(Path(".").glob(config["documents"]["pdf_glob"]))
+        if not pdf_paths:
+            raise FileNotFoundError("No PDF files were found.")
+    else:
+        pdf_paths = []
 
     print(
         f"Loading the pipeline for {len(selected_records)} "
@@ -682,6 +679,8 @@ def main():
         "model_id": config["llm"]["model_id"],
         "dataset_path": str(dataset_path),
         "config_path": str(CONFIG_PATH),
+        "indexing_mode": config["indexing"]["mode"],
+        "persist_directory": config["indexing"]["persist_directory"],
         "embedding_model": config["embedding"]["model_name"],
         "reranker_model": config["reranking"]["model_name"],
         "chunk_size": config["chunking"]["chunk_size"],
