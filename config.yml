@@ -8,6 +8,11 @@ indexing:
   mode: "load"  # First use "build"; then switch to "load" to reuse the persisted indexes.
   persist_directory: "index-data"
 
+ablation:
+  use_dense_retrieval: true
+  use_bm25_retrieval: false
+  use_query_expansion: true
+
 chunking:
   chunk_size: 900
   chunk_overlap: 200

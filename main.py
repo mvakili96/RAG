@@ -49,9 +49,17 @@ class RAGPipeline:
         self.persist_directory = Path(
             self.config["indexing"]["persist_directory"]
         )
+        self.use_dense_retrieval = self.config["ablation"]["use_dense_retrieval"]
+        self.use_bm25_retrieval = self.config["ablation"]["use_bm25_retrieval"]
+        self.use_query_expansion = self.config["ablation"]["use_query_expansion"]
 
         if self.indexing_mode not in ("build", "load"):
             raise ValueError('indexing.mode must be either "build" or "load".')
+        if not self.use_dense_retrieval and not self.use_bm25_retrieval:
+            raise ValueError(
+                "At least one of ablation.use_dense_retrieval or "
+                "ablation.use_bm25_retrieval must be enabled."
+            )
 
         self.page_texts = {}
 
@@ -74,8 +82,12 @@ class RAGPipeline:
             self.save_index_data()
         else:
             self.load_index_data()
-            self.embedding_model = self.create_embedding_model()
-            self.source_vector_stores = self.load_dense_indexes()
+            self.embedding_model = (
+                self.create_embedding_model() if self.use_dense_retrieval else None
+            )
+            self.source_vector_stores = (
+                self.load_dense_indexes() if self.use_dense_retrieval else {}
+            )
 
         self.llm = self.load_llm()
         self.reranker = None
@@ -624,37 +636,40 @@ class RAGPipeline:
 
     def retrieve_candidates(self, query, expanded_query):
         sources = self.selected_sources(query)
-        query_vector = self.embedding_model.embed_query(query)
 
         # If a source was explicitly named, this searches only its chunks. Otherwise,
         # this searches all chunks from all sources.
         dense_results_with_scores = []
-        for source in sources:
-            dense_results_with_scores.extend(
-                self.source_vector_stores[source].similarity_search_with_score_by_vector(
-                    query_vector,
-                    k=self.config["retrieval"]["dense_top_k"]
+        if self.use_dense_retrieval:
+            query_vector = self.embedding_model.embed_query(query)
+            for source in sources:
+                dense_results_with_scores.extend(
+                    self.source_vector_stores[source].similarity_search_with_score_by_vector(
+                        query_vector,
+                        k=self.config["retrieval"]["dense_top_k"]
+                    )
                 )
-            )
-        dense_results_with_scores.sort(key=lambda item: item[1])
-        dense_results_with_scores = dense_results_with_scores[
-            :self.config["retrieval"]["dense_top_k"]
-        ]
+            dense_results_with_scores.sort(key=lambda item: item[1])
+            dense_results_with_scores = dense_results_with_scores[
+                :self.config["retrieval"]["dense_top_k"]
+            ]
         dense_candidate_docs = [doc for doc, _ in dense_results_with_scores]
 
-        bm25_chunks, bm25_index = self.bm25_for_sources(sources)
-        bm25_query_tokens = list(
-            dict.fromkeys(self.tokenize_for_bm25(expanded_query))
-        )
-        bm25_scores = bm25_index.get_scores(bm25_query_tokens)
-        top_bm25_indices = bm25_scores.argsort()[
-            ::-1
-        ][:self.config["retrieval"]["bm25_top_k"]]
-        bm25_results_with_scores = [
-            (bm25_chunks[index], float(bm25_scores[index]))
-            for index in top_bm25_indices
-            if bm25_scores[index] > self.config["retrieval"]["bm25_min_score"]
-        ]
+        bm25_results_with_scores = []
+        if self.use_bm25_retrieval:
+            bm25_chunks, bm25_index = self.bm25_for_sources(sources)
+            bm25_query_tokens = list(
+                dict.fromkeys(self.tokenize_for_bm25(expanded_query))
+            )
+            bm25_scores = bm25_index.get_scores(bm25_query_tokens)
+            top_bm25_indices = bm25_scores.argsort()[
+                ::-1
+            ][:self.config["retrieval"]["bm25_top_k"]]
+            bm25_results_with_scores = [
+                (bm25_chunks[index], float(bm25_scores[index]))
+                for index in top_bm25_indices
+                if bm25_scores[index] > self.config["retrieval"]["bm25_min_score"]
+            ]
         bm25_candidate_docs = [doc for doc, _ in bm25_results_with_scores]
 
         """
@@ -848,7 +863,15 @@ class RAGPipeline:
         return self.llm.invoke(formatted_prompt)
 
     def run(self, query):
-        query_expansion, expanded_query = self.expand_query(query)
+        query_expansion = {
+            "key_terms": [],
+            "acronyms": [],
+            "variations": [],
+        }
+        expanded_query = query
+        if self.use_bm25_retrieval and self.use_query_expansion:
+            query_expansion, expanded_query = self.expand_query(query)
+
         retrieval = self.retrieve_candidates(query, expanded_query)
         reranked_docs = self.rerank_candidates(
             query,
